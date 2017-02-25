@@ -47,3 +47,24 @@ def test_WlanCloseHandle():
 
     # Assert
     assert True
+
+
+def test_WlanEnumInterfaces():
+    # Arrange
+    import re
+    import subprocess
+    import sys
+
+    guid_pattern = r'[abcdef0-9]{8}-[abcdef0-9]{4}-[abcdef0-9]{4}-[abcdef0-9]{4}-[abcdef0-9]{12}'
+    p = re.compile(guid_pattern)
+
+    client_handle = win32wlanapi.WlanOpenHandle()
+    cp = subprocess.run('netsh wlan show interface', shell=True, stdout=subprocess.PIPE)
+    guid = p.search(cp.stdout.decode('latin-1')).group()
+
+    # Act
+    expected = guid
+    actual = win32wlanapi.WlanEnumInterfaces(client_handle)[0].get('InterfaceGuid')
+
+    # Assert
+    assert expected == actual
