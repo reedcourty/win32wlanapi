@@ -53,7 +53,6 @@ def test_WlanEnumInterfaces():
     # Arrange
     import re
     import subprocess
-    import sys
 
     guid_pattern = r'[abcdef0-9]{8}-[abcdef0-9]{4}-[abcdef0-9]{4}-[abcdef0-9]{4}-[abcdef0-9]{12}'
     p = re.compile(guid_pattern)
@@ -64,7 +63,25 @@ def test_WlanEnumInterfaces():
 
     # Act
     expected = guid
-    actual = win32wlanapi.WlanEnumInterfaces(client_handle)[0].get('InterfaceGuid')
+    actual = str(win32wlanapi.WlanEnumInterfaces(client_handle)[0].InterfaceGuid)
+
+    # Assert
+    assert expected == actual
+
+
+def test_WlanGetAvailableNetworkList():
+    # Arrange
+    import subprocess
+
+    client_handle = win32wlanapi.WlanOpenHandle()
+    interface = win32wlanapi.WlanEnumInterfaces(client_handle)[0]
+    interface_guid = interface.InterfaceGuid
+
+    cp = subprocess.run('netsh wlan show networks', shell=True, stdout=subprocess.PIPE)
+
+    # Act
+    expected = True
+    actual = win32wlanapi.WlanGetAvailableNetworkList(client_handle, interface_guid)[0].strProfileName in cp.stdout.decode('latin-1')
 
     # Assert
     assert expected == actual

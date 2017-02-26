@@ -22,14 +22,18 @@ from ctypes import c_uint
 from ctypes import c_void_p
 from ctypes import POINTER
 
+from ctypes.wintypes import BOOL
 from ctypes.wintypes import DWORD
 from ctypes.wintypes import HANDLE
 from ctypes.wintypes import WCHAR
-
+from ctypes.wintypes import ULONG
 
 from .guiddef import GUID
 from .winerror import ERROR_SUCCESS
+from .wlantypes import DOT11_SSID, DOT11_BSS_TYPE, DOT11_PHY_TYPE, DOT11_AUTH_ALGORITHM, DOT11_CIPHER_ALGORITHM
+from .wlantypes import WLAN_SIGNAL_QUALITY
 
+WLAN_MAX_PHY_TYPE_NUMBER = 8
 
 wlanapi = ctypes.windll.wlanapi
 
@@ -62,6 +66,14 @@ WLAN_INTERFACE_STATE_DICT = {
     7: 'wlan_interface_state_authenticating'
 }
 
+"""
+The WLAN_REASON_CODE type indicates the reason a WLAN operation has failed.
+
+typedef DWORD WLAN_REASON_CODE, *PWLAN_REASON_CODE;
+
+More info: https://msdn.microsoft.com/en-us/library/windows/desktop/ms707394(v=vs.85).aspx
+"""
+WLAN_REASON_CODE = DWORD
 
 class WLAN_INTERFACE_INFO(Structure):
     """
@@ -101,6 +113,68 @@ class WLAN_INTERFACE_INFO_LIST(Structure):
     ]
 
 
+class WLAN_AVAILABLE_NETWORK(Structure):
+    """
+    The WLAN_AVAILABLE_NETWORK structure contains information about an available wireless network.
+
+    typedef struct _WLAN_AVAILABLE_NETWORK {
+        WCHAR                  strProfileName[256];
+        DOT11_SSID             dot11Ssid;
+        DOT11_BSS_TYPE         dot11BssType;
+        ULONG                  uNumberOfBssids;
+        BOOL                   bNetworkConnectable;
+        WLAN_REASON_CODE       wlanNotConnectableReason;
+        ULONG                  uNumberOfPhyTypes;
+        DOT11_PHY_TYPE         dot11PhyTypes[WLAN_MAX_PHY_TYPE_NUMBER];
+        BOOL                   bMorePhyTypes;
+        WLAN_SIGNAL_QUALITY    wlanSignalQuality;
+        BOOL                   bSecurityEnabled;
+        DOT11_AUTH_ALGORITHM   dot11DefaultAuthAlgorithm;
+        DOT11_CIPHER_ALGORITHM dot11DefaultCipherAlgorithm;
+        DWORD                  dwFlags;
+        DWORD                  dwReserved;
+    } WLAN_AVAILABLE_NETWORK, *PWLAN_AVAILABLE_NETWORK;
+
+    More info: https://msdn.microsoft.com/en-us/library/windows/desktop/ms707403(v=vs.85).aspx
+    """
+    _fields_ = [
+        ("strProfileName", WCHAR * 256),
+        ("dot11Ssid", DOT11_SSID),
+        ("dot11BssType", DOT11_BSS_TYPE),
+        ("uNumberOfBssids", ULONG),
+        ("bNetworkConnectable", BOOL),
+        ("wlanNotConnectableReason", WLAN_REASON_CODE),
+        ("uNumberOfPhyTypes", ULONG),
+        ("dot11PhyTypes", DOT11_PHY_TYPE * WLAN_MAX_PHY_TYPE_NUMBER),
+        ("bMorePhyTypes", BOOL),
+        ("wlanSignalQuality", WLAN_SIGNAL_QUALITY),
+        ("bSecurityEnabled", BOOL),
+        ("dot11DefaultAuthAlgorithm", DOT11_AUTH_ALGORITHM),
+        ("dot11DefaultCipherAlgorithm", DOT11_CIPHER_ALGORITHM),
+        ("dwFlags", DWORD),
+        ("dwReserved", DWORD)
+    ]
+
+class WLAN_AVAILABLE_NETWORK_LIST(Structure):
+    """
+    The WLAN_AVAILABLE_NETWORK_LIST structure contains an array of information about available networks.
+
+    typedef struct _WLAN_AVAILABLE_NETWORK_LIST {
+        DWORD                  dwNumberOfItems;
+        DWORD                  dwIndex;
+        WLAN_AVAILABLE_NETWORK Network[1];
+    } WLAN_AVAILABLE_NETWORK_LIST, *PWLAN_AVAILABLE_NETWORK_LIST;
+
+    More info: https://msdn.microsoft.com/en-us/library/windows/desktop/ms707405(v=vs.85).aspx
+    """
+    _fields_ = [
+        ("dwNumberOfItems", DWORD),
+        ("dwIndex", DWORD),
+        ("Network", WLAN_AVAILABLE_NETWORK * 1)
+    ]
+
+
+
 def WlanOpenHandle():
     """
     The WlanOpenHandle function opens a connection to the server.
@@ -123,7 +197,7 @@ def WlanOpenHandle():
     dwNegotiatedVersion = DWORD()
     hClientHandle = HANDLE()
 
-    result = wlanapi.WlanOpenHandle(dwClientVersion, pReserved, byref(dwNegotiatedVersion), byref(hClientHandle))
+    result = function_ref(dwClientVersion, pReserved, byref(dwNegotiatedVersion), byref(hClientHandle))
 
     if result != ERROR_SUCCESS:
         raise Exception(FormatError(result))
@@ -152,10 +226,30 @@ def WlanCloseHandle(client_handle):
 
     hClientHandle = client_handle
 
-    result = wlanapi.WlanCloseHandle(hClientHandle, None)
+    result = function_ref(hClientHandle, None)
 
     if result != ERROR_SUCCESS:
         raise Exception(FormatError(result))
+
+
+def WlanFreeMemory(memory):
+    """
+    The WlanFreeMemory function frees memory. Any memory returned from Native Wifi functions must be freed.
+
+    VOID WINAPI WlanFreeMemory(
+        _In_ PVOID pMemory
+    );
+
+    More info: https://msdn.microsoft.com/en-us/library/windows/desktop/ms706722(v=vs.85).aspx
+
+    :return:
+    """
+    function_ref = wlanapi.WlanFreeMemory
+    function_ref.argtypes = [c_void_p]
+    function_ref.restype = c_void_p
+
+    result = function_ref(memory)
+
 
 
 def WlanEnumInterfaces(client_handle):
@@ -189,6 +283,15 @@ def WlanEnumInterfaces(client_handle):
     interfaces = (pInterfaceList.contents.InterfaceInfo._type_ * pInterfaceList.contents.dwNumberOfItems).from_address(
         ctypes.addressof(pInterfaceList.contents.InterfaceInfo))
 
+    return interfaces
+
+
+def get_interfaces_as_list_of_dict(interfaces):
+    """
+
+    :param interfaces:
+    :return:
+    """
     interface_list = []
 
     for interface in interfaces:
@@ -201,3 +304,40 @@ def WlanEnumInterfaces(client_handle):
         interface_list.append(interface_dict)
 
     return interface_list
+
+
+def WlanGetAvailableNetworkList(client_handle, interface_guid):
+    """
+    The WlanGetAvailableNetworkList function retrieves the list of available networks on a wireless LAN interface.
+
+    DWORD WINAPI WlanGetAvailableNetworkList(
+        _In_             HANDLE                       hClientHandle,
+        _In_       const GUID                         *pInterfaceGuid,
+        _In_             DWORD                        dwFlags,
+        _Reserved_       PVOID                        pReserved,
+        _Out_            PWLAN_AVAILABLE_NETWORK_LIST *ppAvailableNetworkList
+    );
+
+    More info: https://msdn.microsoft.com/en-us/library/windows/desktop/ms706749(v=vs.85).aspx
+
+    :return:
+    """
+
+    function_ref = wlanapi.WlanGetAvailableNetworkList
+    function_ref.argtypes = [HANDLE, GUID, DWORD, c_void_p, POINTER(POINTER(WLAN_AVAILABLE_NETWORK_LIST))]
+    function_ref.restype = DWORD
+
+    hClientHandle = client_handle
+    AvailableNetworkList = WLAN_AVAILABLE_NETWORK_LIST()
+    pAvailableNetworkList = pointer(AvailableNetworkList)
+
+    result = function_ref(hClientHandle, interface_guid, 0, None, byref(pAvailableNetworkList))
+
+    if result != ERROR_SUCCESS:
+        raise Exception(FormatError(result))
+
+    available_network_list = (
+    pAvailableNetworkList.contents.Network._type_ * pAvailableNetworkList.contents.dwNumberOfItems).from_address(
+        ctypes.addressof(pAvailableNetworkList.contents.Network))
+
+    return available_network_list
